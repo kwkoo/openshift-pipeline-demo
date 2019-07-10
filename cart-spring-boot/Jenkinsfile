@@ -1,0 +1,75 @@
+pipeline {
+  environment {
+    IMAGESTREAM = "redhat-openjdk18-openshift:1.4"
+    APP_NAME = "cart"
+  }
+  agent {
+    label 'maven'
+  }
+  stages {
+    stage('Build App') {
+      steps {
+        sh "mvn clean package -s src/main/config/settings.xml"
+      }
+    }
+    stage('Integration Test') {
+      steps {
+        sh "mvn verify -s src/main/config/settings.xml"
+      }
+    }
+    stage('Build Image') {
+      steps {
+        script {
+          openshift.withCluster() {
+            openshift.withProject(env.DEV_PROJ) {
+              openshift.verbose()
+              openshift.startBuild(env.APP_NAME, "--from-file=target/${env.APP_NAME}.jar").logs("-f")
+            }
+          }
+        }
+      }
+    }
+    stage('Wait For Deployment To Complete') {
+      steps {
+        script {
+          openshift.withCluster() {
+            openshift.withProject(env.DEV_PROJ) {
+              //dc = openshift.selector("dc", env.APP_NAME)
+              //dc.rollout().latest()
+              timeout(time: 5, unit: 'MINUTES') {
+                openshift.selector("dc", env.APP_NAME).rollout().status()
+              }
+            }
+          }
+        }
+      }
+    }
+    stage('Ensure Service Is Up') {
+      steps {
+        script {
+          sh "wget --retry-connrefused --tries=120 --waitretry=1 -q http://${env.APP_NAME}:8080/health -O /dev/null"
+        }
+      }
+    }
+    stage('Component Test') {
+      steps {
+        script {
+          sh "curl -s -X POST http://${env.APP_NAME}:8080/api/cart/dummy/555/1"
+          sh "curl -s http://${env.APP_NAME}:8080/api/cart/dummy | grep 'Dummy Product'"
+        }
+      }
+    }
+    stage('Promote to Prod') {
+      steps {
+        timeout(time:15, unit:'MINUTES') {
+          input message: "Approve Promotion to Prod?", ok: "Promote"
+        }
+        script {
+          openshift.withCluster() {
+            openshift.tag("${env.DEV_PROJ}/${env.APP_NAME}:latest", "${env.PROD_PROJ}/${env.APP_NAME}:prod")
+          }
+        }
+      }
+    }
+  }
+}

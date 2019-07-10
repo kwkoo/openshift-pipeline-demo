@@ -1,0 +1,509 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: gogs-template
+objects:
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: gogs-postgresql-pvc
+    labels:
+      app: gogs
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 512Mi
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: gogs-pvc
+    labels:
+      app: gogs
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 512Mi
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
+    generation: 2
+    labels:
+      app: gogs
+      group: xpaas
+      template: gogs
+    name: gogs
+  spec:
+    lookupPolicy:
+      local: false
+    tags:
+    - annotations:
+        description: The Gogs git server docker image
+        tags: gogs,go,golang
+        version: 0.9.97
+      from:
+        kind: DockerImage
+        name: openshiftdemos/gogs:0.9.97
+      generation: 2
+      importPolicy: {}
+      name: 0.9.97
+      referencePolicy:
+        type: Source
+- apiVersion: apps.openshift.io/v1
+  kind: DeploymentConfig
+  metadata:
+    generation: 3
+    labels:
+      app: gogs
+      group: xpaas
+      template: gogs
+    name: gogs
+  spec:
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      app: gogs
+      deploymentconfig: gogs
+    strategy:
+      activeDeadlineSeconds: 21600
+      recreateParams:
+        timeoutSeconds: 600
+      resources: {}
+      type: Recreate
+    template:
+      metadata:
+        creationTimestamp: null
+        labels:
+          app: gogs
+          deploymentconfig: gogs
+      spec:
+        containers:
+        - image: openshiftdemos/gogs@sha256:5f074232ae59ec1c540bb809ffed1e49c821f7478d4f68e55149a64910480f0a
+          imagePullPolicy: Always
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: gogs
+          ports:
+          - containerPort: 3000
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /home/gogs/gogs-repositories
+            name: gogs-data
+          - mountPath: /etc/gogs/conf
+            name: config-volume
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - name: gogs-data
+          persistentVolumeClaim:
+            claimName: gogs-pvc
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: gogs-app.ini
+              path: app.ini
+            name: gogs
+          name: config-volume
+    test: false
+    triggers:
+    - type: ConfigChange
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - gogs
+        from:
+          kind: ImageStreamTag
+          name: gogs:0.9.97
+        lastTriggeredImage: openshiftdemos/gogs@sha256:5f074232ae59ec1c540bb809ffed1e49c821f7478d4f68e55149a64910480f0a
+      type: ImageChange
+- apiVersion: apps.openshift.io/v1
+  kind: DeploymentConfig
+  metadata:
+    creationTimestamp: null
+    generation: 2
+    labels:
+      app: gogs
+      deploymentconfig: postgresql-gogs
+      group: xpaas
+      template: gogs
+    name: postgresql-gogs
+  spec:
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      app: gogs
+      deploymentconfig: postgresql-gogs
+    strategy:
+      activeDeadlineSeconds: 21600
+      recreateParams:
+        timeoutSeconds: 600
+      resources: {}
+      type: Recreate
+    template:
+      metadata:
+        creationTimestamp: null
+        labels:
+          app: gogs
+          deploymentconfig: postgresql-gogs
+      spec:
+        containers:
+        - env:
+          - name: POSTGRESQL_USER
+            value: gogs
+          - name: POSTGRESQL_PASSWORD
+            value: gogs
+          - name: POSTGRESQL_DATABASE
+            value: gogs
+          image: registry.access.redhat.com/rhscl/postgresql-94-rhel7:latest
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: 5432
+            timeoutSeconds: 1
+          name: postgresql-gogs
+          ports:
+          - containerPort: 5432
+            protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+              - /bin/sh
+              - -i
+              - -c
+              - psql -h 127.0.0.1 -U $POSTGRESQL_USER -q -d $POSTGRESQL_DATABASE -c
+                'SELECT 1'
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              memory: 512Mi
+          securityContext:
+            capabilities: {}
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/pgsql/data
+            name: postgresql-data
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - name: postgresql-data
+          persistentVolumeClaim:
+            claimName: gogs-postgresql-pvc
+    test: false
+    triggers:
+    - imageChangeParams:
+        containerNames:
+        - postgresql-gogs
+        from:
+          kind: ImageStreamTag
+          name: postgresql:latest
+          namespace: openshift
+      type: ImageChange
+    - type: ConfigChange
+  status:
+    availableReplicas: 0
+    latestVersion: 0
+    observedGeneration: 0
+    replicas: 0
+    unavailableReplicas: 0
+    updatedReplicas: 0
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    labels:
+      app: gogs
+      group: xpaas
+      template: gogs
+    name: gogs
+  spec:
+    to:
+      kind: Service
+      name: gogs
+      weight: 100
+    wildcardPolicy: None
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      description: The Gogs server's http port
+    labels:
+      app: gogs
+      group: xpaas
+      template: gogs
+    name: gogs
+  spec:
+    ports:
+    - name: web
+      port: 3000
+      protocol: TCP
+      targetPort: 3000
+    selector:
+      app: gogs
+      deploymentconfig: gogs
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      app: gogs
+      group: xpaas
+      template: gogs
+    name: postgresql-gogs
+  spec:
+    ports:
+    - name: postgresql
+      port: 5432
+      protocol: TCP
+      targetPort: 5432
+    selector:
+      app: gogs
+      deploymentconfig: postgresql-gogs
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  data:
+    gogs-app.ini: "# NEVER EVER MODIFY THIS FILE\n# PLEASE MAKE CHANGES ON CORRESPONDING
+      CUSTOM CONFIG FILE\n; App name that shows on every page title\nAPP_NAME = Gogs:
+      Go Git Service\n; Change it if you run locally\nRUN_USER = gogs\n; Either \"dev\",
+      \"prod\" or \"test\", default is \"dev\"\nRUN_MODE = prod\n\n[repository]\nROOT
+      \                     = /home/gogs/gogs-repositories\nSCRIPT_TYPE               =
+      bash\n; Default ANSI charset\nANSI_CHARSET              = \n; Force every new
+      repository to be private\nFORCE_PRIVATE             = false\n; Global maximum
+      creation limit of repository per user, -1 means no limit\nMAX_CREATION_LIMIT
+      \       = -1\n; Mirror sync queue length, increase if mirror syncing starts
+      hanging\nMIRROR_QUEUE_LENGTH       = 1000\n; Patch test queue length, increase
+      if pull request patch testing starts hanging\nPULL_REQUEST_QUEUE_LENGTH = 1000\n;
+      Preferred Licenses to place at the top of the List\n; Name must match file name
+      in conf/license or custom/conf/license\nPREFERRED_LICENSES        = Apache License
+      2.0,MIT License\n\n[repository.editor]\n; List of file extensions that should
+      have line wraps in the CodeMirror editor\n; Separate extensions with a comma.
+      To line wrap files w/o extension, just put a comma\nLINE_WRAP_EXTENSIONS   =
+      .txt,.md,.markdown,.mdown,.mkd,\n; Valid file modes that have a preview API
+      associated with them, such as api/v1/markdown\n; Separate values by commas.
+      Preview tab in edit mode won't show if the file extension doesn't match\nPREVIEWABLE_FILE_MODES
+      = markdown\n\n[repository.upload]\n; Whether repository file uploads are enabled.
+      Defaults to `true`\nENABLED       = true\n; Path for uploads. Defaults to `data/tmp/uploads`
+      (tmp gets deleted on gogs restart)\nTEMP_PATH     = data/tmp/uploads\n; One
+      or more allowed types, e.g. image/jpeg|image/png. Nothing means any file type\nALLOWED_TYPES
+      = \n; Max size of each file in MB. Defaults to 3MB\nFILE_MAX_SIZE = 3\n; Max
+      number of files per upload. Defaults to 5\nMAX_FILES     = 5\n\n[ui]\n; Number
+      of repositories that are showed in one explore page\nEXPLORE_PAGING_NUM    =
+      20\n; Number of issues that are showed in one page\nISSUE_PAGING_NUM      =
+      10\n; Number of maximum commits showed in one activity feed\nFEED_MAX_COMMIT_NUM
+      \  = 5\n; Value of `theme-color` meta tag, used by Android >= 5.0\n; An invalid
+      color like \"none\" or \"disable\" will have the default style\n; More info:
+      https://developers.google.com/web/updates/2014/11/Support-for-theme-color-in-Chrome-39-for-Android\nTHEME_COLOR_META_TAG
+      \ = `#ff5343`\n; Max size of files to be displayed (defaults is 8MiB)\nMAX_DISPLAY_FILE_SIZE
+      = 8388608\n\n[ui.admin]\n; Number of users that are showed in one page\nUSER_PAGING_NUM
+      \  = 50\n; Number of repos that are showed in one page\nREPO_PAGING_NUM   =
+      50\n; Number of notices that are showed in one page\nNOTICE_PAGING_NUM = 25\n;
+      Number of organization that are showed in one page\nORG_PAGING_NUM    = 50\n\n[ui.user]\n;
+      Number of repos that are showed in one page\nREPO_PAGING_NUM = 15\n\n[markdown]\n;
+      Enable hard line break extension\nENABLE_HARD_LINE_BREAK = false\n; List of
+      custom URL-Schemes that are allowed as links when rendering Markdown\n; for
+      example git,magnet\nCUSTOM_URL_SCHEMES     = \n; List of file extensions that
+      should be rendered/edited as Markdown\n; Separate extensions with a comma. To
+      render files w/o extension as markdown, just put a comma\nFILE_EXTENSIONS        =
+      .md,.markdown,.mdown,.mkd\n\n[server]\nPROTOCOL               = http\nDOMAIN
+      \                = localhost\nROOT_URL               = http://gogs-${PROJECT}.${ROUTING_SUFFIX}/\nHTTP_ADDR
+      \             = 0.0.0.0\nHTTP_PORT              = 3000\n; Permission for unix
+      socket\nUNIX_SOCKET_PERMISSION = 666\n; Local (DMZ) URL for Gogs workers (such
+      as SSH update) accessing web service.\n; In most cases you do not need to change
+      the default value.\n; Alter it only if your SSH server node is not the same
+      as HTTP node.\nLOCAL_ROOT_URL         = %(PROTOCOL)s://%(HTTP_ADDR)s:%(HTTP_PORT)s/\n;
+      Disable SSH feature when not available\nDISABLE_SSH            = false\n; Whether
+      use builtin SSH server or not.\nSTART_SSH_SERVER       = false\n; Domain name
+      to be exposed in clone URL\nSSH_DOMAIN             = %(DOMAIN)s\n; Network interface
+      builtin SSH server listens on\nSSH_LISTEN_HOST        = 0.0.0.0\n; Port number
+      to be exposed in clone URL\nSSH_PORT               = 22\n; Port number builtin
+      SSH server listens on\nSSH_LISTEN_PORT        = %(SSH_PORT)s\n; Root path of
+      SSH directory, default is '~/.ssh', but you have to use '/home/git/.ssh'.\nSSH_ROOT_PATH
+      \         = \n; Directory to create temporary files when test publick key using
+      ssh-keygen,\n; default is system temporary directory.\nSSH_KEY_TEST_PATH      =
+      \n; Path to ssh-keygen, default is 'ssh-keygen' and let shell find out which
+      one to call.\nSSH_KEYGEN_PATH        = ssh-keygen\n; Indicate whether to check
+      minimum key size with corresponding type\nMINIMUM_KEY_SIZE_CHECK = false\n;
+      Disable CDN even in \"prod\" mode\nOFFLINE_MODE           = false\nDISABLE_ROUTER_LOG
+      \    = false\n; Generate steps:\n; $ ./gogs cert -ca=true -duration=8760h0m0s
+      -host=myhost.example.com\n;\n; Or from a .pfx file exported from the Windows
+      certificate store (do\n; not forget to export the private key):\n; $ openssl
+      pkcs12 -in cert.pfx -out cert.pem -nokeys\n; $ openssl pkcs12 -in cert.pfx -out
+      key.pem -nocerts -nodes\nCERT_FILE              = custom/https/cert.pem\nKEY_FILE
+      \              = custom/https/key.pem\n; Upper level of template and static
+      file path\n; default is the path where Gogs is executed\nSTATIC_ROOT_PATH       =
+      \n; Default path for App data\nAPP_DATA_PATH          = data\n; Application
+      level GZIP support\nENABLE_GZIP            = false\n; Landing page for non-logged
+      users, can be \"home\" or \"explore\"\nLANDING_PAGE           = home\n\n; Define
+      allowed algorithms and their minimum key length (use -1 to disable a type)\n[ssh.minimum_key_sizes]\nED25519
+      = 256\nECDSA   = 256\nRSA     = 2048\nDSA     = 1024\n\n[database]\n; Either
+      \"mysql\", \"postgres\" or \"sqlite3\", it's your choice\nDB_TYPE  = postgres\nHOST
+      \    = postgresql-gogs:5432\nNAME     = gogs\nUSER     = gogs\nPASSWD   = gogs\n;
+      For \"postgres\" only, either \"disable\", \"require\" or \"verify-full\"\nSSL_MODE
+      = disable\n; For \"sqlite3\" and \"tidb\", use absolute path when you start
+      as service\nPATH     = data/gogs.db\n\n[admin]\n\n[security]\nINSTALL_LOCK                      =
+      true\n; !!CHANGE THIS TO KEEP YOUR USER DATA SAFE!!\n#@FDEWREWR&*(\nSECRET_KEY
+      \                       = f65nzCKGhFppeGv\n; Auto-login remember days\nLOGIN_REMEMBER_DAYS
+      \              = 7\nCOOKIE_USERNAME                   = gogs_awesome\nCOOKIE_REMEMBER_NAME
+      \             = gogs_incredible\n; Reverse proxy authentication header name
+      of user name\nREVERSE_PROXY_AUTHENTICATION_USER = X-WEBAUTH-USER\n\n[service]\nACTIVE_CODE_LIVE_MINUTES
+      \              = 180\nRESET_PASSWD_CODE_LIVE_MINUTES         = 180\n; User need
+      to confirm e-mail for registration\nREGISTER_EMAIL_CONFIRM                 =
+      false\n; Does not allow register and admin create account only\nDISABLE_REGISTRATION
+      \                  = false\n; User must sign in to view anything.\nREQUIRE_SIGNIN_VIEW
+      \                   = false\n; Mail notification\nENABLE_NOTIFY_MAIL                     =
+      false\n; More detail: https://github.com/gogits/gogs/issues/165\nENABLE_REVERSE_PROXY_AUTHENTICATION
+      \   = false\nENABLE_REVERSE_PROXY_AUTO_REGISTRATION = false\n; Enable captcha
+      validation for registration\nENABLE_CAPTCHA                         = true\n\n[webhook]\n;
+      Hook task queue length, increase if webhook shooting starts hanging\nQUEUE_LENGTH
+      \   = 1000\n; Deliver timeout in seconds\nDELIVER_TIMEOUT = 5\n; Allow insecure
+      certification\nSKIP_TLS_VERIFY = true\n; Number of history information in each
+      page\nPAGING_NUM      = 10\n\n[mailer]\nENABLED                 = false\n; Buffer
+      length of channel, keep it as it is if you don't know what it is.\nSEND_BUFFER_LEN
+      \        = 100\n; Name displayed in mail title\nSUBJECT                 = %(APP_NAME)s\n;
+      Mail server\n; Gmail: smtp.gmail.com:587\n; QQ: smtp.qq.com:465\n; Note, if
+      the port ends with \"465\", SMTPS will be used. Using STARTTLS on port 587 is
+      recommended per RFC 6409. If the server supports STARTTLS it will always be
+      used.\nHOST                    = \n; Disable HELO operation when hostname are
+      different.\nDISABLE_HELO            = \n; Custom hostname for HELO operation,
+      default is from system.\nHELO_HOSTNAME           = \n; Do not verify the certificate
+      of the server. Only use this for self-signed certificates\nSKIP_VERIFY             =
+      \n; Use client certificate\nUSE_CERTIFICATE         = false\nCERT_FILE               =
+      custom/mailer/cert.pem\nKEY_FILE                = custom/mailer/key.pem\n; Mail
+      from address, RFC 5322. This can be just an email address, or the `\"Name\"
+      <email@example.com>` format\nFROM                    = \n; Mailer user name
+      and password\nUSER                    = \nPASSWD                  = \n; Use
+      text/html as alternative format of content\nENABLE_HTML_ALTERNATIVE = false\n\n[cache]\n;
+      Either \"memory\", \"redis\", or \"memcache\", default is \"memory\"\nADAPTER
+      \ = memory\n; For \"memory\" only, GC interval in seconds, default is 60\nINTERVAL
+      = 60\n; For \"redis\" and \"memcache\", connection host address\n; redis: network=tcp,addr=:6379,password=macaron,db=0,pool_size=100,idle_timeout=180\n;
+      memcache: `127.0.0.1:11211`\nHOST     = \n\n[session]\n; Either \"memory\",
+      \"file\", or \"redis\", default is \"memory\"\nPROVIDER          = file\n; Provider
+      config options\n; memory: not have any config yet\n; file: session file path,
+      e.g. `data/sessions`\n; redis: network=tcp,addr=:6379,password=macaron,db=0,pool_size=100,idle_timeout=180\n;
+      mysql: go-sql-driver/mysql dsn config string, e.g. `root:password@/session_table`\nPROVIDER_CONFIG
+      \  = data/sessions\n; Session cookie name\nCOOKIE_NAME       = i_like_gogits\n;
+      If you use session in https only, default is false\nCOOKIE_SECURE     = false\n;
+      Enable set cookie, default is true\nENABLE_SET_COOKIE = true\n; Session GC time
+      interval, default is 86400\nGC_INTERVAL_TIME  = 86400\n; Session life time,
+      default is 86400\nSESSION_LIFE_TIME = 86400\n\n[picture]\nAVATAR_UPLOAD_PATH
+      \     = data/avatars\n; Chinese users can choose \"duoshuo\"\n; or a custom
+      avatar source, like: http://cn.gravatar.com/avatar/\nGRAVATAR_SOURCE         =
+      gravatar\n; This value will be forced to be true in offline mode.\nDISABLE_GRAVATAR
+      \       = false\n; Federated avatar lookup uses DNS to discover avatar associated\n;
+      with emails, see https://www.libravatar.org\n; This value will be forced to
+      be false in offline mode or Gravatar is disbaled.\nENABLE_FEDERATED_AVATAR =
+      false\n\n[attachment]\n; Whether attachments are enabled. Defaults to `true`\nENABLE
+      \       = true\n; Path for attachments. Defaults to `data/attachments`\nPATH
+      \         = data/attachments\n; One or more allowed types, e.g. image/jpeg|image/png\nALLOWED_TYPES
+      = image/jpeg|image/png\n; Max size of each file. Defaults to 32MB\nMAX_SIZE
+      \     = 4\n; Max number of files per upload. Defaults to 10\nMAX_FILES     =
+      5\n\n[time]\n; Specifies the format for fully outputed dates. Defaults to RFC1123\n;
+      Special supported values are ANSIC, UnixDate, RubyDate, RFC822, RFC822Z, RFC850,
+      RFC1123, RFC1123Z, RFC3339, RFC3339Nano, Kitchen, Stamp, StampMilli, StampMicro
+      and StampNano\n; For more information about the format see http://golang.org/pkg/time/#pkg-constants\nFORMAT
+      = \n\n[log]\nROOT_PATH  = /opt/gogs/log\n; Either \"console\", \"file\", \"conn\",
+      \"smtp\" or \"database\", default is \"console\"\n; Use comma to separate multiple
+      modes, e.g. \"console, file\"\nMODE       = file\n; Buffer length of channel,
+      keep it as it is if you don't know what it is.\nBUFFER_LEN = 10000\n; Either
+      \"Trace\", \"Debug\", \"Info\", \"Warn\", \"Error\", \"Critical\", default is
+      \"Trace\"\nLEVEL      = Info\n\n; For \"console\" mode only\n[log.console]\nLEVEL
+      = \n\n; For \"file\" mode only\n[log.file]\nLEVEL          = \n; This enables
+      automated log rotate(switch of following options), default is true\nLOG_ROTATE
+      \    = true\n; Max line number of single file, default is 1000000\nMAX_LINES
+      \     = 1000000\n; Max size shift of single file, default is 28 means 1 << 28,
+      256MB\nMAX_SIZE_SHIFT = 28\n; Segment log daily, default is true\nDAILY_ROTATE
+      \  = true\n; Expired days of log file(delete after max days), default is 7\nMAX_DAYS
+      \      = 7\n\n; For \"conn\" mode only\n[log.conn]\nLEVEL            = \n; Reconnect
+      host for every single message, default is false\nRECONNECT_ON_MSG = false\n;
+      Try to reconnect when connection is lost, default is false\nRECONNECT        =
+      false\n; Either \"tcp\", \"unix\" or \"udp\", default is \"tcp\"\nPROTOCOL         =
+      tcp\n; Host address\nADDR             = \n\n; For \"smtp\" mode only\n[log.smtp]\nLEVEL
+      \    = \n; Name displayed in mail title, default is \"Diagnostic message from
+      server\"\nSUBJECT   = Diagnostic message from server\n; Mail server\nHOST      =
+      \n; Mailer user name and password\nUSER      = \nPASSWD    = \n; Receivers,
+      can be one or more, e.g. [\"1@example.com\",\"2@example.com\"]\nRECEIVERS =
+      \n\n; For \"database\" mode only\n[log.database]\nLEVEL  = \n; Either \"mysql\"
+      or \"postgres\"\nDRIVER = \n; Based on xorm, e.g.: root:root@localhost/gogs?charset=utf8\nCONN
+      \  = \n\n[cron]\n; Enable running cron tasks periodically.\nENABLED      = true\n;
+      Run cron tasks when Gogs starts.\nRUN_AT_START = false\n\n; Update mirrors\n[cron.update_mirrors]\nSCHEDULE
+      = @every 10m\n\n; Repository health check\n[cron.repo_health_check]\nSCHEDULE
+      = @every 24h\nTIMEOUT  = 60s\n; Arguments for command 'git fsck', e.g. \"--unreachable
+      --tags\"\n; see more on http://git-scm.com/docs/git-fsck/1.7.5\nARGS     = \n\n;
+      Check repository statistics\n[cron.check_repo_stats]\nRUN_AT_START = true\nSCHEDULE
+      \    = @every 24h\n\n[git]\n; Disables highlight of added and removed changes\nDISABLE_DIFF_HIGHLIGHT
+      \      = false\n; Max number of lines allowed of a single file in diff view\nMAX_GIT_DIFF_LINES
+      \          = 1000\n; Max number of characters of a line allowed in diff view\nMAX_GIT_DIFF_LINE_CHARACTERS
+      = 500\n; Max number of files shown in diff view\nMAX_GIT_DIFF_FILES           =
+      100\n; Arguments for command 'git gc', e.g. \"--aggressive --auto\"\n; see more
+      on http://git-scm.com/docs/git-gc/1.7.5\nGC_ARGS                      = \n\n;
+      Operation timeout in seconds\n[git.timeout]\nMIGRATE = 600\nMIRROR  = 300\nCLONE
+      \  = 300\nPULL    = 300\nGC      = 60\n\n[mirror]\n; Default interval in hours
+      between each check\nDEFAULT_INTERVAL = 8\n\n[api]\n; Max number of items will
+      response in a page\nMAX_RESPONSE_ITEMS = 50\n\n[i18n]\nLANGS = en-US,zh-CN,zh-HK,zh-TW,de-DE,fr-FR,nl-NL,lv-LV,ru-RU,ja-JP,es-ES,pt-BR,pl-PL,bg-BG,it-IT,fi-FI,tr-TR,cs-CZ,sr-SP,sv-SE,ko-KR\nNAMES
+      = English,简体中文,繁體中文（香港）,繁體中文（台湾）,Deutsch,Français,Nederlands,Latviešu,Русский,日本語,Español,Português
+      do Brasil,Polski,български,Italiano,Suomalainen,Türkçe,čeština,Српски,Svenska,한국어\n\n;
+      Used for datetimepicker\n[i18n.datelang]\nen-US = en\nzh-CN = zh\nzh-HK = zh-TW\nzh-TW
+      = zh-TW\nde-DE = de\nfr-FR = fr\nnl-NL = nl\nlv-LV = lv\nru-RU = ru\nja-JP =
+      ja\nes-ES = es\npt-BR = pt-BR\npl-PL = pl\nbg-BG = bg\nit-IT = it\nfi-FI = fi\ntr-TR
+      = tr\ncs-CZ = cs-CZ\nsr-SP = sr\nsv-SE = sv\nko-KR = ko\n\n; Extension mapping
+      to highlight class\n; e.g. .toml=ini\n[highlight.mapping]\n\n[other]\nSHOW_FOOTER_BRANDING
+      \          = false\n; Show version information about Gogs and Go in the footer\nSHOW_FOOTER_VERSION
+      \           = true\n; Show time of template execution in the footer\nSHOW_FOOTER_TEMPLATE_LOAD_TIME
+      = true\n\n"
+  kind: ConfigMap
+  metadata:
+    name: gogs
+parameters:
+- description: The name of the project to which this application is deployed to.
+  displayName: Project
+  name: PROJECT
+  required: true
+- description: The OpenShift routing suffix. End with .nip.io or .xip.io if using an IP address.
+  displayName: Routing Suffix
+  name: ROUTING_SUFFIX
+  required: true
+

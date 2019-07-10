@@ -1,0 +1,48 @@
+#!/bin/bash
+
+if [ $# -lt 4 ]; then
+	echo "Usage: $0 GOGS_PROJECT GOGS_USER GOGS_PASSWORD REPO_URI"
+	exit 1
+fi
+
+cd $(dirname $0)
+BASE=$(pwd)
+cd - >> /dev/null
+
+
+PROJECTNAME=$1
+GOGSUSER=$2
+GOGSPASSWORD=$3
+REPO_URI=$4
+
+REPO_DIR=${BASE}/../cart-spring-boot
+REPO_NAME=cart
+REPO_DESCRIPTION="Spring Boot Shopping Cart"
+
+
+set -e
+
+GOGS_HOSTNAME="$(oc get route gogs --no-headers -o custom-columns=domain:spec.host -n $PROJECTNAME)"
+echo "Gogs Hostname: ${GOGS_HOSTNAME}"
+if [ -z "${GOGS_HOSTNAME}" ]; then
+    echo "Gogs hostname is not valid"
+    exit 1
+fi
+
+echo "Creating gogs token..."
+curl -v  -X POST -H "Content-Type: application/json" -d '{"name":"sample-token","sha1":"8a4fc41b4868aecdd623b10cb1b64a36c6ee51f3"}' http://${GOGSUSER}:${GOGSPASSWORD}@${GOGS_HOSTNAME}/api/v1/users/${GOGSUSER}/tokens
+
+echo "Creating repository..."
+curl -H "Content-Type: application/json" -d '{"name": "'"${REPO_NAME}"'", "description": "'"${REPO_DESCRIPTION}"'", "private": false}' -X POST http://${GOGSUSER}:${GOGSPASSWORD}@${GOGS_HOSTNAME}/api/v1/user/repos?token=8a4fc41b4868aecdd623b10cb1b64a36c6ee51f3
+
+cd ${REPO_DIR}
+echo
+echo "Preparing git in $(pwd)..."
+rm -rf .git
+git init
+git add .
+git commit -am 'Initial commit'
+git push --mirror http://${GOGSUSER}:${GOGSPASSWORD}@${GOGS_HOSTNAME}/${REPO_URI}
+rm -rf .git
+
+echo "Successfully pushed local repo to gogs"

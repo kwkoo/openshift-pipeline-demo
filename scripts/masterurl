@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# Check if we're running in RHPDS.
+#
+if [ -n "${GUID}" ]; then
+  echo "https://master.${GUID}.openshiftworkshop.com"
+  exit 0
+fi
+
+# Check if we're running in minishift.
+#
+which minishift >> /dev/null 2>&1
+if [ $? -eq 0 ]; then
+  echo "https://$(minishift ip):8443"
+  exit 0
+fi
+
+echo "https://localhost:8443"

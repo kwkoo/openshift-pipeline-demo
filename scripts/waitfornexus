@@ -1,0 +1,24 @@
+#!/bin/bash
+
+if [ $# -lt 1 ]; then
+	echo "Usage: $0 NEXUS_PROJECT"
+	exit 1
+fi
+
+PROJ=$1
+
+echo -n "Waiting for nexus to come up..."
+
+while true; do
+	ROUTE=$(oc get route/nexus -n $PROJ --template='{{.spec.host}}' 2> /dev/null)
+	if [ -n "$ROUTE" ]; then
+		ROUTE="http://${ROUTE}"
+		RC=$(curl -sL -w "%{http_code}" ${ROUTE} -o /dev/null)
+		if [ "$RC" = "200" ]; then
+			echo "done"
+			exit 0
+		fi
+	fi
+	echo -n "."
+	sleep 5
+done

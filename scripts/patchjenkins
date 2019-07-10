@@ -1,0 +1,19 @@
+#!/bin/bash
+
+if [ $# -lt 1 ]; then
+	echo "Usage: $0 PROJECT"
+	exit 1
+fi
+
+PROJECT=$1
+
+echo -n "Waiting for the jenkins dc to appear..."
+
+COUNT=0
+while [ $COUNT -lt 1 ]; do
+    sleep 5
+    echo -n "."
+    COUNT=$(oc get dc/jenkins -n $PROJECT --no-headers 2>/dev/null | wc -l)
+done
+
+oc set resources -n $PROJECT dc/jenkins --requests=memory=4Gi --limits=memory=4Gi
