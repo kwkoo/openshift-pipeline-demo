@@ -180,6 +180,9 @@ deploypipeline:
 	| \
 	oc create -f -
 	@echo "Deploying pipeline..."
+	# Note: If you intend to use this against a Nexus 3 server, NEXUS_URL
+	# should be changed to
+	# http://$(NEXUS_APP_NAME).$(INFRA_PROJECT).svc:8081/repository/maven-all-public
 	@oc new-app \
 	  http://$(GOGS_APP_NAME)-$(INFRA_PROJECT).$(ROUTING_SUFFIX)/$(CART_REPO_URI) \
 	  --name=$(PIPELINE_APP_NAME) \
