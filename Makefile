@@ -206,7 +206,9 @@ deploypipeline:
 	  --build-env NEXUS_URL=http://$(NEXUS_APP_NAME).$(INFRA_PROJECT).svc:8081/content/groups/public \
 	  --build-env DEV_PROJ=$(DEV_PROJECT) \
 	  --build-env PROD_PROJ=$(PROD_PROJECT)
-	@$(BASE)/scripts/patchjenkins $(DEV_PROJECT)
+	@if [ "$(shell oc get limits/$(DEV_PROJECT)-core-resource-limits -n $(DEV_PROJECT) -o=jsonpath='{.spec.limits[0].max.memory}')" != "6Gi" ]; then \
+	  $(BASE)/scripts/patchjenkins $(DEV_PROJECT); \
+	fi
 
 setupprod:
 	@echo "Setting up production project..."
