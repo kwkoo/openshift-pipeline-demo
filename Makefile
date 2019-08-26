@@ -12,7 +12,7 @@ CART_APP_NAME=cart
 CART_REPO_URI=gogs/$(CART_APP_NAME).git
 ROUTING_SUFFIX=$(shell $(BASE)/scripts/getroutingsuffix)
 MASTER_URL=$(shell $(BASE)/scripts/masterurl)
-ON_RHPDS=$(shell $(BASE)/scripts/onrhpds)
+SKIP_TEMPLATES_PROVISION=$(shell $(BASE)/scripts/onrhpds)
 
 
 # Uncomment this block if you are installing it on RHPDS but are not running
@@ -20,10 +20,21 @@ ON_RHPDS=$(shell $(BASE)/scripts/onrhpds)
 # your environment.
 #
 #GUID=XXX-XXXX
-#ON_RHPDS=1
+#SKIP_TEMPLATES_PROVISION=1
 #MASTER_URL=https://master.$(GUID).openshiftworkshop.com
 #ROUTING_SUFFIX=apps.$(GUID).openshiftworkshop.com
 
+
+# Uncomment this block if you are installing it on opentlc.
+#
+#GUID=na311
+#PROJ_PREFIX=XXX-
+#INFRA_PROJECT=$(PROJ_PREFIX)lab-infra
+#DEV_PROJECT=$(PROJ_PREFIX)dev
+#PROD_PROJECT=$(PROJ_PREFIX)prod
+#SKIP_TEMPLATES_PROVISION=1
+#MASTER_URL=https://master.$(GUID).openshift.opentlc.com
+#ROUTING_SUFFIX=apps.$(GUID).openshift.opentlc.com
 
 
 # Set this if you need to install templates and quickstarts.
@@ -40,7 +51,7 @@ REGISTRY_PASSWORD=
 NEXUS_URL=http://$(NEXUS_APP_NAME)-$(INFRA_PROJECT).$(ROUTING_SUFFIX)
 
 
-ifeq ($(ON_RHPDS), 1)
+ifeq ($(SKIP_TEMPLATES_PROVISION), 1)
 	INFRA_OC_USER=user1
 else
 	INFRA_OC_USER=developer
@@ -71,7 +82,7 @@ help:
 printvar:
 	@echo "MASTER_URL = $(MASTER_URL)"
 	@echo "ROUTING_SUFFIX = $(ROUTING_SUFFIX)"
-	@echo "ON_RHPDS = $(ON_RHPDS)"
+	@echo "SKIP_TEMPLATES_PROVISION = $(SKIP_TEMPLATES_PROVISION)"
 	@echo "NEXUS_URL = $(NEXUS_URL)"
 	@echo "INFRA_PROJECT = $(INFRA_PROJECT)"
 	@echo "GOGS_APP_NAME = $(GOGS_APP_NAME)"
@@ -90,16 +101,16 @@ printvar:
 	@read
 
 deploytemplates:
-	@if [ $(ON_RHPDS) -ne 1 ]; then \
+	@if [ $(SKIP_TEMPLATES_PROVISION) -ne 1 ]; then \
 	  if [ -z "$(REGISTRY_USERNAME)" -o -z "$(REGISTRY_PASSWORD)" ]; then \
 	    echo "Error: You need to set the REGISTRY_USERNAME and REGISTRY_PASSWORD variables"; \
 		exit 1; \
 	  fi; \
 	fi
-	-@if [ $(ON_RHPDS) -eq 1 ]; then \
-		echo "Running on RHPDS - do not need to install default templates"; \
+	-@if [ $(SKIP_TEMPLATES_PROVISION) -eq 1 ]; then \
+		echo "Skipping install of default templates"; \
 	else \
-		echo "Not running on RHPDS - we need to install default templates"; \
+		echo "We need to install default templates"; \
 		oc login -u system:admin; \
 		oc create secret docker-registry imagestreamsecret \
 		  --docker-username="$(REGISTRY_USERNAME)" \
@@ -117,7 +128,9 @@ deploytemplates:
 
 deploygogs:
 	@echo "Deploying gogs..."
-	@oc login -u $(INFRA_OC_USER) -p openshift
+	@if [ $(SKIP_TEMPLATES_PROVISION) -ne 1 ]; then \
+	  @oc login -u $(INFRA_OC_USER) -p openshift; \
+	fi
 	@$(BASE)/scripts/switchtoproject $(INFRA_PROJECT)
 	@oc process \
 	  -f $(BASE)/yaml/gogs-template.yaml \
@@ -137,7 +150,9 @@ setupgogs: waitforgogs
 
 deploynexus:
 	@echo "Deploying nexus..."
-	@oc login -u $(INFRA_OC_USER) -p openshift
+	@if [ $(SKIP_TEMPLATES_PROVISION) -ne 1 ]; then \
+	  @oc login -u $(INFRA_OC_USER) -p openshift; \
+	fi
 	@$(BASE)/scripts/switchtoproject $(INFRA_PROJECT)
 	@oc process \
 	  -f $(BASE)/yaml/xpaas-nexus-persistent.yaml \
@@ -170,7 +185,9 @@ configrepos: waitfornexus
 	>> /dev/null
 
 deploypipeline:
-	@oc login -u $(DEV_OC_USER) -p openshift
+	@if [ $(SKIP_TEMPLATES_PROVISION) -ne 1 ]; then \
+	  @oc login -u $(DEV_OC_USER) -p openshift; \
+	fi
 	@$(BASE)/scripts/switchtoproject $(DEV_PROJECT)
 	@echo "Deploying dev artifacts..."
 	@oc process \
@@ -193,7 +210,9 @@ deploypipeline:
 
 setupprod:
 	@echo "Setting up production project..."
-	@oc login -u $(PROD_OC_USER) -p openshift
+	@if [ $(SKIP_TEMPLATES_PROVISION) -ne 1 ]; then \
+	  @oc login -u $(PROD_OC_USER) -p openshift; \
+	fi
 	@$(BASE)/scripts/switchtoproject $(PROD_PROJECT)
 	@oc create \
 	  -f https://raw.githubusercontent.com/openshift-labs/devops-labs/ocp-3.11/openshift/coolstore-deployment-template.yaml
