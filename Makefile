@@ -21,8 +21,8 @@ SKIP_TEMPLATES_PROVISION=$(shell $(BASE)/scripts/onrhpds)
 #
 #GUID=XXX-XXXX
 #SKIP_TEMPLATES_PROVISION=1
-#MASTER_URL=https://master.$(GUID).openshiftworkshop.com
-#ROUTING_SUFFIX=apps.$(GUID).openshiftworkshop.com
+#MASTER_URL=https://master.$(GUID).open.redhat.com
+#ROUTING_SUFFIX=apps.$(GUID).open.redhat.com
 
 
 # Uncomment this block if you are installing it on opentlc.
