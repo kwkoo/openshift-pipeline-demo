@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Check if we're running in RHPDS.
-#
-CITYGUID=$(echo $HOSTNAME | sed -e 's/bastion.\([^.]*\).openshiftworkshop.com/\1/')
-if [ -n "$CITYGUID" ]; then
+# Return 1 if on RHPDS, 0 if not on RHPDS.
+if [[ $(oc whoami --show-server) =~ ".example.opentlc.com" ]]; then
   echo "1"
-  exit 0
+else
+  echo "0"
 fi
 
-echo "0"
+exit

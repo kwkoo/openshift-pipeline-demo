@@ -1,0 +1,34 @@
+#!/bin/bash
+
+PROJ="$1"
+
+if [ -z "$PROJ" ]; then
+  echo "Usage: $0 NEXUS_PROJECT"
+  exit 1
+fi
+NEXUS_URL=$(oc get route/nexus -n $PROJ -o jsonpath='{"http://"}{.spec.host}')
+NEXUS_USER=admin
+NEXUS_PWD=admin123
+
+#
+# Add a Proxy Repo to Nexus3
+# add_nexus3_proxy_repo [repo-id] [repo-url] [nexus-username] [nexus-password] [nexus-url]
+#
+function add_nexus3_proxy_repo() {
+  local _REPO_ID=$1
+  local _REPO_URL=$2
+
+  read -r -d '' _REPO_JSON << EOM
+{
+  "name": "$_REPO_ID",
+  "type": "groovy",
+  "content": "repository.createMavenProxy('$_REPO_ID','$_REPO_URL')"
+}
+EOM
+
+  curl -v -H "Accept: application/json" -H "Content-Type: application/json" -d "$_REPO_JSON" -u "$NEXUS_USER:$NEXUS_PWD" "${NEXUS_URL}/service/rest/v1/script/"
+  curl -v -X POST -H "Content-Type: text/plain" -u "$NEXUS_USER:$NEXUS_PWD" "${NEXUS_URL}/service/rest/v1/script/$_REPO_ID/run"
+}
+
+add_nexus3_proxy_repo redhat-ga https://maven.repository.redhat.com/ga/
+add_nexus3_proxy_repo jboss https://repository.jboss.org/nexus/content/groups/public/

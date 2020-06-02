@@ -11,7 +11,6 @@ PIPELINE_APP_NAME=pipeline
 CART_APP_NAME=cart
 CART_REPO_URI=gogs/$(CART_APP_NAME).git
 ROUTING_SUFFIX=$(shell $(BASE)/scripts/getroutingsuffix)
-MASTER_URL=$(shell $(BASE)/scripts/masterurl)
 SKIP_TEMPLATES_PROVISION=$(shell $(BASE)/scripts/onrhpds)
 
 
@@ -21,7 +20,6 @@ SKIP_TEMPLATES_PROVISION=$(shell $(BASE)/scripts/onrhpds)
 #
 #GUID=XXX-XXXX
 #SKIP_TEMPLATES_PROVISION=1
-#MASTER_URL=https://master.$(GUID).open.redhat.com
 #ROUTING_SUFFIX=apps.$(GUID).open.redhat.com
 
 
@@ -33,7 +31,6 @@ SKIP_TEMPLATES_PROVISION=$(shell $(BASE)/scripts/onrhpds)
 #DEV_PROJECT=$(PROJ_PREFIX)dev
 #PROD_PROJECT=$(PROJ_PREFIX)prod
 #SKIP_TEMPLATES_PROVISION=1
-#MASTER_URL=https://master.$(GUID).openshift.opentlc.com
 #ROUTING_SUFFIX=apps.$(GUID).openshift.opentlc.com
 
 
@@ -80,7 +77,6 @@ help:
 	@echo "endpoint - CartEndpoint.java in Gogs."
 
 printvar:
-	@echo "MASTER_URL = $(MASTER_URL)"
 	@echo "ROUTING_SUFFIX = $(ROUTING_SUFFIX)"
 	@echo "SKIP_TEMPLATES_PROVISION = $(SKIP_TEMPLATES_PROVISION)"
 	@echo "NEXUS_URL = $(NEXUS_URL)"
@@ -97,6 +93,7 @@ printvar:
 	@echo "REGISTRY_USERNAME = $(REGISTRY_USERNAME)"
 	@echo "REGISTRY_PASSWORD = $(REGISTRY_PASSWORD)"
 	@echo
+	@echo "Ensure that you have logged in using the oc tool before you proceed"
 	@echo "Press enter to proceed"
 	@read
 
@@ -154,35 +151,17 @@ deploynexus:
 	  @oc login -u $(INFRA_OC_USER) -p openshift; \
 	fi
 	@$(BASE)/scripts/switchtoproject $(INFRA_PROJECT)
-	@oc process \
-	  -f $(BASE)/yaml/xpaas-nexus-persistent.yaml \
-	  -p APPLICATION_NAME=nexus \
-	  -p VOLUME_CAPACITY=512Mi \
-	| \
-	oc create -f -
+	@oc new-app \
+	  -f https://raw.githubusercontent.com/OpenShiftDemos/nexus/master/nexus3-template.yaml \
+	  --param=NEXUS_VERSION=3.13.0 \
+	  --param=MAX_MEMORY=2Gi
 
 waitfornexus: deploynexus
 	@$(BASE)/scripts/waitfornexus $(INFRA_PROJECT)
 
 configrepos: waitfornexus
 	@echo "Configuring nexus proxy registry..."
-	@curl \
-	  -u $(NEXUS_ADMIN_USER):$(NEXUS_ADMIN_PASSWORD) \
-	  -X POST \
-	  -H "Content-Type: application/json" \
-	  -d "{\"data\":{\"repoType\":\"proxy\",\"id\":\"redhat-ga\",\"name\":\"Red Hat GA\",\"browseable\":true,\"indexable\":true,\"notFoundCacheTTL\":1440,\"artifactMaxAge\":-1,\"metadataMaxAge\":1440,\"itemMaxAge\":1440,\"repoPolicy\":\"RELEASE\",\"provider\":\"maven2\",\"providerRole\":\"org.sonatype.nexus.proxy.repository.Repository\",\"downloadRemoteIndexes\":true,\"autoBlockActive\":true,\"fileTypeValidation\":true,\"exposed\":true,\"checksumPolicy\":\"WARN\",\"remoteStorage\":{\"remoteStorageUrl\":\"https://maven.repository.redhat.com/ga/\",\"authentication\":null,\"connectionSettings\":null}}}" \
-	  -S \
-	  $(NEXUS_URL)/service/local/repositories \
-	>> /dev/null
-	@echo "Configuring public repositories..."
-	@curl \
-	  -u $(NEXUS_ADMIN_USER):$(NEXUS_ADMIN_PASSWORD) \
-	  -X PUT \
-	  -H "Content-Type: application/json" \
-	  -d '{"data":{"id":"public","name":"Public Repositories","format":"maven2","exposed":true,"provider":"maven2","repositories":[{"id":"releases"},{"id":"snapshots"},{"id":"thirdparty"},{"id":"central"},{"id":"redhat-ga"},{"id":"apache-snapshots"}]}}' \
-	  -S \
-	  $(NEXUS_URL)/service/local/repo_groups/public \
-	>> /dev/null
+	@$(BASE)/scripts/addnexusrepos $(INFRA_PROJECT)
 
 deploypipeline:
 	@if [ $(SKIP_TEMPLATES_PROVISION) -ne 1 ]; then \
@@ -196,14 +175,15 @@ deploypipeline:
 	  -p APP_NAME=$(CART_APP_NAME) \
 	| \
 	oc create -f -
+	@echo "Deploying jenkins..."
+	@oc new-app \
+	  jenkins-ephemeral \
+	  --param=MEMORY_LIMIT=4Gi
 	@echo "Deploying pipeline..."
-	# Note: If you intend to use this against a Nexus 3 server, NEXUS_URL
-	# should be changed to
-	# http://$(NEXUS_APP_NAME).$(INFRA_PROJECT).svc:8081/repository/maven-all-public
 	@oc new-app \
 	  http://$(GOGS_APP_NAME)-$(INFRA_PROJECT).$(ROUTING_SUFFIX)/$(CART_REPO_URI) \
 	  --name=$(PIPELINE_APP_NAME) \
-	  --build-env NEXUS_URL=http://$(NEXUS_APP_NAME).$(INFRA_PROJECT).svc:8081/content/groups/public \
+	  --build-env NEXUS_URL=http://$(NEXUS_APP_NAME).$(INFRA_PROJECT).svc:8081/repository/maven-all-public \
 	  --build-env DEV_PROJ=$(DEV_PROJECT) \
 	  --build-env PROD_PROJ=$(PROD_PROJECT)
 	@if [ "$(shell oc get limits/$(DEV_PROJECT)-core-resource-limits -n $(DEV_PROJECT) -o=jsonpath='{.spec.limits[0].max.memory}')" != "6Gi" ]; then \
@@ -244,7 +224,7 @@ clean:
 	-@oc delete project $(PROD_PROJECT)
 
 console:
-	$(eval URL="`$(BASE)/scripts/masterurl`/console")
+	$(eval URL="http://console-openshift-console.$(ROUTING_SUFFIX)")
 	@if [ "$(shell uname)" = "Darwin" ]; then \
 	  open ${URL}; \
 	else \
