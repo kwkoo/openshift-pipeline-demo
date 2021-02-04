@@ -142,7 +142,7 @@ waitforgogs: deploygogs
 
 setupgogs: waitforgogs
 	@echo "Creating gogs user..."
-	@oc rsh dc/postgresql-gogs /bin/sh -c 'LD_LIBRARY_PATH=/opt/rh/rh-postgresql10/root/usr/lib64 /opt/rh/rh-postgresql10/root/usr/bin/psql -U gogs -d gogs -c "INSERT INTO public.user (lower_name,name,email,passwd,rands,salt,max_repo_creation,avatar,avatar_email,num_repos) VALUES ('"'gogs','gogs','gogs@gogs,com','40d76f42148716323d6b398f835438c7aec43f41f3ca1ea6e021192f993e1dc4acd95f36264ffe16812a954ba57492f4c107','konHCHTY7M','9XecGGR6cW',-1,'e4eba08430c43ef06e425e2e9b7a740f','gogs@gogs.com',1"')"'
+	@oc rsh dc/postgresql-gogs /bin/sh -c 'psql -U gogs -d gogs -c "INSERT INTO public.user (lower_name,name,email,passwd,rands,salt,max_repo_creation,avatar,avatar_email,num_repos) VALUES ('"'gogs','gogs','gogs@gogs,com','40d76f42148716323d6b398f835438c7aec43f41f3ca1ea6e021192f993e1dc4acd95f36264ffe16812a954ba57492f4c107','konHCHTY7M','9XecGGR6cW',-1,'e4eba08430c43ef06e425e2e9b7a740f','gogs@gogs.com',1"')"'
 	@$(BASE)/scripts/pushtogogs $(INFRA_PROJECT) gogs gogs $(CART_REPO_URI)
 
 deploynexus:
